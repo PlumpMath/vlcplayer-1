@@ -23,6 +23,7 @@ namespace vlcplayer
         private int _numberOfRequest;
 
         private ManualResetEvent resetEvent;
+        private MemoryStream _ms;
 
         public Server()
         {
@@ -34,7 +35,7 @@ namespace vlcplayer
 
         private void RequestThread()
         {
-            while (_listener.IsListening)
+            while ((_listener != null) && (_listener.IsListening))
             {
                 var context = _listener.BeginGetContext(new AsyncCallback(ListenerCallback), _listener);
                 context.AsyncWaitHandle.WaitOne();
@@ -80,11 +81,16 @@ namespace vlcplayer
                 _isStopping = true;
             }
 
-            resetEvent.WaitOne();
+            resetEvent.WaitOne(1000);
             _isStopping = false;
-//            _listener.Stop();
             System.Diagnostics.Debug.WriteLine("Listener Stopped");
             _isStarted = false;
+        }
+
+        public void Dispose()
+        {
+            _listener.Close();
+            _listener.Abort();
         }
 
         public void Start()
@@ -98,38 +104,7 @@ namespace vlcplayer
 
             _numberOfRequest = 0;
         }
-/*
-        public void Start()
-        {
-            if (!HttpListener.IsSupported)
-                System.Diagnostics.Debug.WriteLine("Not supported");
 
-            _listener.Start();
-            _listener.IgnoreWriteExceptions = true;
-
-            _isStarted = true;
-
-
-            System.Threading.Tasks.Task.Factory.StartNew(() =>
-                {
-                   while (true)
-                    {
-                        HttpListenerContext context = _listener.GetContext();
-                        System.Threading.Tasks.Task.Factory.StartNew((ctx) =>
-                        {
-                            _isStop = false;
-                            WriteFile((HttpListenerContext)ctx);
-                        }, context, System.Threading.Tasks.TaskCreationOptions.LongRunning);
-                    }
-                }, System.Threading.Tasks.TaskCreationOptions.LongRunning);            
-        }
-
-        public void Stop()
-        {
-            _isStop = true;
-            _filename = string.Empty;
-        }
-*/
         public bool IsStarted
         {
             get
@@ -140,36 +115,36 @@ namespace vlcplayer
 
         void WriteFile(HttpListenerContext ctx)
         {
-            if (FileName == string.Empty)
-                return;
+//            if (FileName == string.Empty)
+//                return;
 
             var response = ctx.Response;
 
-            using (FileStream fs = File.OpenRead(FileName))
+//            using (FileStream fs = File.OpenRead(FileName))
+
+            using (_ms)
             {
-                response.ContentLength64 = fs.Length;
-                //                response.SendChunked = false;
+                System.Diagnostics.Debug.WriteLine(string.Format("Length = {0}", _ms.Length));
+                response.ContentLength64 = _ms.Length;
                 response.SendChunked = false;
                 response.ContentType = System.Net.Mime.MediaTypeNames.Application.Octet;
                 response.AddHeader("Cache-Control", "no-cache");
                 response.AddHeader("Content-Length", "0");
-                response.AddHeader("Content-disposition", "attachment; filename=1");
+                response.AddHeader("Content-disposition", "attachment; filename=1.mp4");
 
-//                byte[] buffer = new byte[64 * 1024];
                 byte[] buffer = new byte[64 * 1024];
                 int read;
                 int Count = 0;
 
                 using (BinaryWriter bw = new BinaryWriter(response.OutputStream))
                 {
-                    while ((read = fs.Read(buffer, 0, buffer.Length)) > 0)
+                    while ((read = _ms.Read(buffer, 0, buffer.Length)) > 0)
                     {
                         try
                         {
                             bw.Write(buffer, 0, read);
                             bw.Flush();
-
-//                            System.Diagnostics.Debug.WriteLine(string.Format("total bytes = {0}", Count++));
+                            Count += read;
                         }
                         catch (Exception ex)
                         {
@@ -184,6 +159,8 @@ namespace vlcplayer
 
                     bw.Close();
                 }
+
+                System.Diagnostics.Debug.WriteLine(string.Format("Count = {0}", Count));
 
                 response.StatusCode = (int)HttpStatusCode.OK;
                 response.StatusDescription = "OK";
@@ -202,6 +179,24 @@ namespace vlcplayer
             {
                 return _filename;
             }
+        }
+
+        public MemoryStream memoryStream
+        {
+            set
+            {
+                _ms = value;
+            }
+            get
+            {
+                return _ms;
+            }
+        }
+
+        public FileStream fileStream
+        {
+            set;
+            get;
         }
     }
 }
